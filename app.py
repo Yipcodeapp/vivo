@@ -19,14 +19,27 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 
 
 def obtener_hls_url(video_id):
-    """Obtiene la URL HLS fresca del video en vivo"""
+    """Obtiene la URL HLS usando cookies para evitar el bloqueo de 'bot'"""
     url = BASE_URL + video_id
+
+    if not os.path.exists("cookies.txt"):
+        print("[!] cookies.txt no encontrado. Requerido para evitar bloqueo.")
+        return None
+
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
         'format': 'best',
         'noplaylist': True,
-        'extract_flat': True,  # Solo metadatos
+        'extract_flat': True,
+        'cookiefile': 'cookies.txt',  # ← AQUÍ SE USAN LAS COOKIES
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+        }
     }
 
     try:
@@ -38,7 +51,7 @@ def obtener_hls_url(video_id):
                     murl = f.get('manifest_url')
                     if murl and 'm3u8' in murl:
                         return murl
-                # Último recurso: cualquier URL con m3u8
+                # Último recurso
                 streaming_url = info.get('url')
                 if streaming_url and '.m3u8' in streaming_url:
                     return streaming_url
