@@ -1,5 +1,5 @@
 # main.py
-from flask import Flask, Response, redirect, abort
+from flask import Flask, Response, redirect, abort, request  
 import yt_dlp
 import os
 import urllib.parse
@@ -78,13 +78,16 @@ def leer_canales():
 
 @app.route("/tv.m3u")
 def lista_m3u():
-    """Genera una lista M3U actualizada en cada petición"""
+    """Genera una lista M3U con la URL base dinámica del servidor"""
+    # Detecta automáticamente el esquema (http/https) y dominio
+    base_url = request.host_url.rstrip("/")  # Ej: https://tu-app.onrender.com
+    stream_base_url = f"{base_url}{STREAM_PATH}"
+
     canales = leer_canales()
     m3u_lines = ["#EXTM3U"]
     for nombre, video_id in canales:
         safe_nombre = urllib.parse.quote(nombre)
-        # URL local que apunta al stream
-        proxy_url = f"{VPS_BASE_URL}{STREAM_PATH}/{safe_nombre}.m3u8"
+        proxy_url = f"{stream_base_url}/{safe_nombre}.m3u8"
         m3u_lines.append(f"#EXTINF:-1,{nombre}")
         m3u_lines.append(proxy_url)
 
