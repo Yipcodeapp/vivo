@@ -1,68 +1,125 @@
-import requests
-import re
-import sys
-import time
+# main.py
+from flask import Flask, Response, redirect, abort
+import yt_dlp
+import os
+import urllib.parse
 
-def get_valid_stream_url():
-    """Obtiene la URL del stream ignorando CDN variable"""
-    url = "https://librefutboltv.su/tyc-sports/"
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
-        "Referer": "https://envivofy.com/",
-        "Origin": "https://envivofy.com"
+app = Flask(__name__)
+
+# === CONFIGURACIÓN ===
+BASE_URL = "https://www.youtube.com/watch?v="
+VPS_BASE_URL = "https://tu-subdominio.onrender.com"  # Render asigna: tu-proyecto.onrender.com
+
+# Ruta base para streams
+STREAM_PATH = "/app4"
+
+# Directorio temporal
+TEMP_DIR = "temp"
+os.makedirs(TEMP_DIR, exist_ok=True)
+
+
+def obtener_hls_url(video_id):
+    """Obtiene la URL HLS fresca del video en vivo"""
+    url = BASE_URL + video_id
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'format': 'best',
+        'noplaylist': True,
+        'extract_flat': True,  # Solo metadatos
     }
-    
+
     try:
-        # Paso 1: Obtener página principal
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
-        
-        # Paso 2: Extraer URL del stream (ignora CDN variable)
-        pattern = r'https://cdn\d+\.vivozytv\.com[^"\']+\.m3u8[^\s"]*'
-        match = re.search(pattern, response.text)
-        
-        if not match:
-            print("❌ No se encontró URL del stream en la página")
-            return False
-        
-        stream_url = match.group(0)
-        print(f"✅ URL del stream encontrada:\n{stream_url}")
-        
-        # Paso 3: Verificar accesibilidad
-        stream_response = requests.get(
-            stream_url,
-            headers={
-                "User-Agent": headers["User-Agent"],
-                "Referer": "https://envivofy.com/",
-                "Origin": "https://envivofy.com"
-            },
-            timeout=10
-        )
-        
-        if stream_response.status_code == 200:
-            print(f"🎉 ¡Éxito! Stream accesible (HTTP 200)")
-            print(f"Tamaño del playlist: {len(stream_response.text)} bytes")
-            return True
-        else:
-            print(f"❌ Error al acceder al stream: HTTP {stream_response.status_code}")
-            return False
-    
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if info.get('is_live') or info.get('live_status') == 'is_live':
+                formats = info.get('formats', [])
+                for f in formats:
+                    murl = f.get('manifest_url')
+                    if murl and 'm3u8' in murl:
+                        return murl
+                # Último recurso: cualquier URL con m3u8
+                streaming_url = info.get('url')
+                if streaming_url and '.m3u8' in streaming_url:
+                    return streaming_url
     except Exception as e:
-        print(f"🚨 Error crítico: {str(e)}")
-        return False
+        print(f"[ERROR] No se pudo obtener HLS para {video_id}: {str(e)}")
+        return None
+    return None
+
+
+def leer_canales():
+    """Lee el archivo canales.txt"""
+    canales = []
+    if not os.path.exists("canales.txt"):
+        print("[!] canales.txt no encontrado")
+        return canales
+    with open("canales.txt", "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and "|" in line:
+                nombre, video_id = line.split("|", 1)
+                canales.append((nombre.strip(), video_id.strip()))
+    return canales
+
+
+@app.route("/tv.m3u")
+def lista_m3u():
+    """Genera una lista M3U actualizada en cada petición"""
+    canales = leer_canales()
+    m3u_lines = ["#EXTM3U"]
+    for nombre, video_id in canales:
+        safe_nombre = urllib.parse.quote(nombre)
+        # URL local que apunta al stream
+        proxy_url = f"{VPS_BASE_URL}{STREAM_PATH}/{safe_nombre}.m3u8"
+        m3u_lines.append(f"#EXTINF:-1,{nombre}")
+        m3u_lines.append(proxy_url)
+
+    return Response("\n".join(m3u_lines), mimetype="application/x-mpegurl")
+
+
+@app.route(f"{STREAM_PATH}/<path:filename>")
+def proxy_stream(filename):
+    """Redirige a la URL HLS real de YouTube (actualizada en tiempo real)"""
+    if not filename.endswith(".m3u8"):
+        abort(404)
+
+    # Extraer nombre del canal (sin .m3u8)
+    nombre_canal = os.path.splitext(filename)[0]
+    nombre_canal = urllib.parse.unquote(nombre_canal)
+
+    # Buscar el video_id en canales.txt
+    canales = leer_canales()
+    video_id = None
+    for nombre, vid in canales:
+        if nombre == nombre_canal:
+            video_id = vid
+            break
+
+    if not video_id:
+        abort(404)
+
+    hls_url = obtener_hls_url(video_id)
+    if not hls_url:
+        return "Stream no disponible", 500
+
+    # Opción 1: Redirigir directamente
+    return redirect(hls_url)
+
+    # Opción 2: (Alternativa) Servir como archivo m3u8 embebido
+    # return Response(f"#EXTM3U\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=2000000\n{hls_url}",
+    #                 mimetype="application/x-mpegurl")
+
+
+@app.route("/")
+def home():
+    return """
+    <h1>YouTube Live Proxy</h1>
+    <p>Usa <a href="/tv.m3u">/tv.m3u</a> para obtener la lista.</p>
+    <p>Cada enlace actualiza la URL HLS en tiempo real.</p>
+    """
+
 
 if __name__ == "__main__":
-    print("="*50)
-    print("TEST DE ACCESO AL STREAM - WINPLUS")
-    print(f"Tiempo: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    print("="*50)
-    
-    success = get_valid_stream_url()
-    
-    print("\n" + "="*50)
-    print("RESULTADO FINAL:", "✅ ÉXITO" if success else "❌ FALLO")
-    print("="*50)
-    
-    # Salir con código 0 si funciona, 1 si falla (para Render)
-    sys.exit(0 if success else 1)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
