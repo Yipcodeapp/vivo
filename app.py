@@ -79,8 +79,8 @@ def leer_canales():
 def lista_m3u():
     """Genera una lista M3U con la URL base dinámica del servidor"""
     # Detecta automáticamente el esquema (http/https) y dominio
-    base_url = request.host_url.rstrip("/")  # Ej: https://tu-app.onrender.com
-    stream_base_url = f"{base_url}{STREAM_PATH}"
+    vps_url = request.host_url.rstrip("/")  # Ej: https://tu-app.onrender.com
+    stream_base_url = f"{vps_url}{STREAM_PATH}"
 
     canales = leer_canales()
     m3u_lines = ["#EXTM3U"]
