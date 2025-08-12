@@ -8,7 +8,6 @@ app = Flask(__name__)
 
 # === CONFIGURACIÓN ===
 BASE_URL = "https://www.youtube.com/watch?v="
-VPS_BASE_URL = "https://tu-subdominio.onrender.com"  # Render asigna: tu-proyecto.onrender.com
 
 # Ruta base para streams
 STREAM_PATH = "/app4"
